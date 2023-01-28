@@ -4,6 +4,7 @@ import active_space_chooser as asc
 
 import pytest
 
+
 class TestGDMSelector:
     @mock.patch.object(asc.GDMSelector, 'get_ground_state_dipole')
     def test_select(self, mock_get_dipole):
@@ -13,20 +14,73 @@ class TestGDMSelector:
             asc.MultiRefCalc(4, 4, 'bar'),
             asc.MultiRefCalc(6, 6, 'baz'),
         ]
-        selector = asc.GDMSelector(mr_calcs=mr_calcs, ref_dipole=0.12)
-        assert selector.select() == mr_calcs[0], "gdm selects closest to ref"
 
+        msg = "gdm selects closest active space to ref dipole"
+        selector = asc.GDMSelector(mr_calcs=mr_calcs, ref_dipole=0.12)
+        assert selector.select() == mr_calcs[0], msg
+        assert mock_get_dipole.call_args_list == [
+            mock.call(arg) for arg in ('foo', 'bar', 'baz')
+        ]
+        mock_get_dipole.reset_mock()
+
+        msg = "gdm selects first active space found in case of ties"
         mock_get_dipole.side_effect = [0.1, 0.14, 0.2]
+        selector = asc.GDMSelector(mr_calcs=mr_calcs, ref_dipole=0.12)
+        assert selector.select() == mr_calcs[0], msg
+        assert mock_get_dipole.call_args_list == [
+            mock.call(arg) for arg in ('foo', 'bar', 'baz')
+        ]
+        mock_get_dipole.reset_mock()
+
+    def test_get_ground_state_dipole(self):
+        pass
+
+
+class TestEDMSelector:
+    @mock.patch.object(asc.EDMSelector, 'get_tddft_es_dipoles')
+    @mock.patch.object(asc.EDMSelector, 'get_mr_es_dipoles')
+    def test_select(self, mock_get_mr, mock_get_tddft):
         mr_calcs = [
             asc.MultiRefCalc(2, 2, 'foo'),
             asc.MultiRefCalc(4, 4, 'bar'),
             asc.MultiRefCalc(6, 6, 'baz'),
         ]
-        selector = asc.GDMSelector(mr_calcs=mr_calcs, ref_dipole=0.12)
-        assert selector.select() == mr_calcs[0], "gdm select first active space found in case of ties"
 
-class TestEDMSelector:
-    def test_select(self):
+        msg = "edm selects the minimum maximum error"
+        mock_get_mr.side_effect = [
+            (0.1, 0.2, 0.3), # errors = (0.1, 0.1, 0.1)
+            (0.4, 0.5, 0.6), # errors = (0.2, 0.2, 0.2)
+            (0.7, 0.8, 0.9)  # errors = (0.5, 0.5, 0.5)
+        ]  # yapf: disable
+        mock_get_tddft.return_value = (0.2, 0.3, 0.4)
+        selector = asc.EDMSelector(mr_calcs=mr_calcs, ref_tddft='bam')
+        assert selector.select() == mr_calcs[0], msg
+        assert mock_get_mr.call_args_list == [
+            mock.call(arg) for arg in ('foo', 'bar', 'baz')
+        ]
+        assert mock_get_tddft.call_args_list == [mock.call('bam')]
+        mock_get_mr.reset_mock()
+        mock_get_tddft.reset_mock()
+
+        mock_get_mr.side_effect = [
+            (0.5, 0.3, 0.4), # errors = (0.4, 0.1, 0.1)
+            (0.4, 0.4, 0.5), # errors = (0.3, 0.2, 0.2)
+            (0.6, 0.2, 0.3)  # errors = (0.5, 0.0, 0.0)
+        ]  # yapf: disable
+        mock_get_tddft.return_value = (0.1, 0.2, 0.3)
+        selector = asc.EDMSelector(mr_calcs=mr_calcs, ref_tddft='bam')
+        assert selector.select() == mr_calcs[1], msg
+        assert mock_get_mr.call_args_list == [
+            mock.call(arg) for arg in ('foo', 'bar', 'baz')
+        ]
+        assert mock_get_tddft.call_args_list == [mock.call('bam')]
+        mock_get_mr.reset_mock()
+        mock_get_tddft.reset_mock()
+
+    def test_get_mr_es_dipoles(self):
+        pass
+
+    def test_get_tddft_es_dipoles(self):
         pass
 
 
