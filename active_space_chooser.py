@@ -2,7 +2,7 @@ import argparse
 import re
 import os
 import glob
-from typing import List, Dict
+from typing import List, Tuple, Optional
 from dataclasses import dataclass
 # TODO: try / except import molextract
 
@@ -78,7 +78,8 @@ class EDMSelector:
         return [0]
 
 
-def get_parsers():
+def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
+                           argparse.ArgumentParser]:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(help='The available methods to choose',
                                        dest='method',
@@ -142,7 +143,9 @@ def get_parsers():
     return parser, gdm_parser, edm_parser
 
 
-def process_opts(gdm_parser, edm_parser, opts):
+def process_opts(gdm_parser: argparse.ArgumentParser,
+                 edm_parser: argparse.ArgumentParser,
+                 opts: argparse.Namespace):
     parser = gdm_parser if opts.method == GDM_AS else edm_parser
     ext = 'csv' if opts.csv else 'log'
     if opts.data_dir is None:
@@ -165,7 +168,7 @@ def process_opts(gdm_parser, edm_parser, opts):
             f'did not find any multi-reference calculation files in {opts.data_dir}'
         )
 
-    if opts.method == EDM_AS and opts.ref_tddt is None:
+    if opts.method == EDM_AS and opts.ref_tddft is None:
         tddft_file_glob = os.path.join(opts.data_dir, f'*.{ext}')
         for path in glob.glob(tddft_file_glob):
             if os.path.isfile(path):
@@ -179,7 +182,7 @@ def process_opts(gdm_parser, edm_parser, opts):
         parser.error(f'{opts.ref_tddft} does not exist')
 
 
-def main(args=None):
+def main(args: Optional[List[str]] = None):
     parser, gdm_parser, edm_parser = get_parsers()
     opts = parser.parse_args(args)
     process_opts(gdm_parser, edm_parser, opts)
