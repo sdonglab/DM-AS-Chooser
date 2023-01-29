@@ -2,9 +2,9 @@ import argparse
 import re
 import os
 import glob
+import csv
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
-# TODO: try / except import molextract
 
 MR_DIRNAME_RE = re.compile(r'\d+-\d+')
 GDM_AS = 'gdm-as'
@@ -16,6 +16,60 @@ class MultiRefCalc:
     num_electrons: int
     num_orbitals: int
     path: str
+
+
+_RASSCF_MOL_PROPS_RULE = None
+
+
+def get_mr_parser():
+    """
+    Lazily import molextract and return a new parser to parse RASSCF Mol Props
+    """
+    global _RASSCF_MOL_PROPS_RULE
+    try:
+        from molextract.rules.molcas import log, general
+        from molextract.parser import Parser
+    except ModuleNotFoundError:
+        raise ValueError(
+            'you must have molextract installed to parse log files')
+
+    if _RASSCF_MOL_PROPS_RULE is None:
+
+        class RASSCFMolProps(log.ModuleRule):
+            def __init__(self):
+                super().__init__('rasscf', [general.MolProps()])
+
+            def reset(self):
+                return self.rules[0].reset()
+
+        _RASSCF_MOL_PROPS_RULE = RASSCFMolProps
+
+    return Parser(_RASSCF_MOL_PROPS_RULE())
+
+
+_TDDFT_DIPOLE_MOMENT_RULE = None
+
+
+def get_tddft_parser():
+    """
+    Lazily import molextract and return a new parser to parse RASSCF Mol Props
+    """
+    global _TDDFT_DIPOLE_MOMENT_RULE
+    try:
+        from molextract.rules.molcas import log, general
+        from molextract.parser import Parser
+    except ModuleNotFoundError:
+        raise ValueError(
+            'you must have molextract installed to parse log files')
+
+    if _TDDFT_DIPOLE_MOMENT_RULE is None:
+        # TODO
+        class TODO:
+            pass
+
+        _TDDFT_DIPOLE_MOMENT_RULE = TODO
+
+    return Parser(_RASSCF_MOL_PROPS_RULE())
 
 
 class GDMSelector:
@@ -36,7 +90,30 @@ class GDMSelector:
 
     @staticmethod
     def get_ground_state_dipole(path: str) -> float:
-        return 0
+        if path.endswith('.log'):
+            return GDMSelector._parse_mr_log(path)
+        elif path.endswith('.csv'):
+            return GDMSelector._parse_csv(path)
+        else:
+            raise ValueError(f'unrecognized file extension {path}')
+
+    @staticmethod
+    def _parse_mr_log(path: str) -> float:
+        parser = get_mr_parser()
+        with open(path, 'r') as f:
+            raw_log = f.read()
+
+        data = parser.feed(raw_log)
+        ground_state_idx = 0
+        return data[ground_state_idx]['dipole']['total']
+
+    @staticmethod
+    def _parse_csv(path: str) -> float:
+        with open(path, 'r') as f:
+            reader = csv.DictReader(f)
+            dipole_field = reader.fieldnames[0]
+            data_line = next(reader)
+            return float(data_line[dipole_field])
 
 
 class EDMSelector:
@@ -45,7 +122,7 @@ class EDMSelector:
     def __init__(self,
                  mr_calcs: List[MultiRefCalc],
                  ref_tddft: str,
-                 max_es=DEFAULT_MAX_EXCITED_STATE):
+                 max_es: int = DEFAULT_MAX_EXCITED_STATE):
         self.mr_calcs = mr_calcs
         self.ref_tddft = ref_tddft
         self.max_es = max_es
@@ -69,13 +146,58 @@ class EDMSelector:
 
         return self.mr_calcs[i]
 
-    @staticmethod
-    def get_mr_es_dipoles(path: str) -> List[float]:
-        return [0]
+    def get_mr_es_dipoles(self, path: str) -> List[float]:
+        if path.endswith('.log'):
+            dipoles = self._parse_mr_log(path)
+        elif path.endswith('.csv'):
+            dipoles = self._parse_csv(path)
+        else:
+            raise ValueError(f'unrecognized file extension {path}')
+
+        if len(dipoles) != self.max_es:
+            raise ValueError(
+                f'did not find {self.max_es} excited state dipole moments in {path}'
+            )
+
+        return dipoles
+
+    def get_tddft_es_dipoles(self, path: str) -> List[float]:
+        if path.endswith('.log'):
+            dipoles = self._parse_tddft_log(path)
+        elif path.endswith('.csv'):
+            dipoles = self._parse_csv(path)
+        else:
+            raise ValueError(f'unrecognized file extension {path}')
+
+        if len(dipoles) != self.max_es:
+            raise ValueError(
+                f'did not find {self.max_es} excited state dipole moments in {path}'
+            )
+
+        return dipoles
 
     @staticmethod
-    def get_tddft_es_dipoles(path: str) -> List[float]:
-        return [0]
+    def _parse_mr_log(path: str) -> List[float]:
+        parser = get_mr_parser()
+        with open(path, 'r') as f:
+            raw_log = f.read()
+
+        data = parser.feed(raw_log)
+        first_es_idx = 1
+        return [es['dipole']['total'] for es in data[first_es_idx:]]
+
+    @staticmethod
+    def _parse_tddft_log(path: str) -> List[float]:
+        raise NotImplementedError
+
+    @staticmethod
+    def _parse_csv(path: str) -> List[float]:
+        with open(path, 'r') as f:
+            reader = csv.DictReader(f)
+            dipole_field = reader.fieldnames[0]
+            data_rows = list(reader)
+
+        return [float(row[dipole_field]) for row in data_rows]
 
 
 def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
