@@ -1,16 +1,21 @@
 import argparse
 import re
 import os
-import glob
+import json
 import csv
 import logging
 from typing import List, Tuple, Optional
+import dataclasses
 from dataclasses import dataclass
 
-MR_DIRNAME_RE = re.compile(r'\d+-\d+')
+ACTIVE_SPACE_RE = re.compile(r'(\d+)-(\d+)')
 GDM_AS = 'gdm-as'
 EDM_AS = 'edm-as'
 logger = logging.getLogger('active_space_chooser')
+
+
+class DipoleNotFoundError(Exception):
+    pass
 
 
 @dataclass
@@ -66,7 +71,7 @@ def get_tddft_parser():
     if _TDDFT_DIPOLE_MOMENT_RULE is None:
         _TDDFT_DIPOLE_MOMENT_RULE = general.DipoleMoment
 
-    return Parser(_TDDFT_DIPOLE_MOMENT_RULE)
+    return Parser(_TDDFT_DIPOLE_MOMENT_RULE())
 
 
 class GDMSelector:
@@ -75,10 +80,15 @@ class GDMSelector:
         self.ref_dipole = ref_dipole
 
     def select(self) -> MultiRefCalc:
-        dipole_moments = [
-            self.get_ground_state_dipole(mr_calc.path)
-            for mr_calc in self.mr_calcs
-        ]
+        dipole_moments = []
+        for mr_calc in self.mr_calcs:
+            try:
+                dm = self.get_ground_state_dipole(mr_calc.path)
+                dipole_moments.append(dm)
+            except DipoleNotFoundError:
+                logger.warning(
+                    f'did not find dipole moment in {mr_calc.path}; removing from analysis...'
+                )
 
         dipole_errors = [abs(dm - self.ref_dipole) for dm in dipole_moments]
         i = dipole_errors.index(min(dipole_errors))
@@ -101,6 +111,9 @@ class GDMSelector:
             raw_log = f.read()
 
         data = parser.feed(raw_log)
+        if data is None:
+            raise DipoleNotFoundError(f'no dipole for {path}')
+
         ground_state_idx = 0
         return data[ground_state_idx]['dipole']['total']
 
@@ -118,17 +131,25 @@ class EDMSelector:
 
     def __init__(self,
                  mr_calcs: List[MultiRefCalc],
-                 ref_tddft: str,
+                 tddft_calcs: List[str],
                  max_es: int = DEFAULT_MAX_EXCITED_STATE):
+        if len(tddft_calcs) < max_es:
+            raise ValueError(f'there must be at least {max_es} tddft calcs')
         self.mr_calcs = mr_calcs
-        self.ref_tddft = ref_tddft
+        self.tddft_calcs = tddft_calcs
         self.max_es = max_es
 
     def select(self) -> MultiRefCalc:
-        tddft_dipoles = self.get_tddft_es_dipoles(self.ref_tddft)
-        all_mr_dipoles = [
-            self.get_mr_es_dipoles(mr_calc.path) for mr_calc in self.mr_calcs
-        ]
+        tddft_dipoles = self.get_tddft_es_dipoles(self.tddft_calcs)
+        all_mr_dipoles = []
+        for mr_calc in self.mr_calcs:
+            try:
+                dipoles = self.get_mr_es_dipoles(mr_calc.path)
+            except DipoleNotFoundError:
+                logger.warning(
+                    f'did not find dipole moments in {mr_calc.path}; removing from analysis...'
+                )
+            all_mr_dipoles.append(dipoles)
 
         all_mr_errors = []
         for mr_dipoles in all_mr_dipoles:
@@ -151,25 +172,23 @@ class EDMSelector:
         else:
             raise ValueError(f'unrecognized file extension {path}')
 
-        if len(dipoles) != self.max_es:
+        if len(dipoles) < self.max_es:
             raise ValueError(
-                f'did not find {self.max_es} excited state dipole moments in {path}'
+                f'did not find at least {self.max_es} excited state dipole moments in {path}'
             )
 
         return dipoles
 
-    def get_tddft_es_dipoles(self, path: str) -> List[float]:
-        if path.endswith('.log'):
-            dipoles = self._parse_tddft_log(path)
-        elif path.endswith('.csv'):
-            dipoles = self._parse_csv(path)
-        else:
-            raise ValueError(f'unrecognized file extension {path}')
-
-        if len(dipoles) != self.max_es:
-            raise ValueError(
-                f'did not find {self.max_es} excited state dipole moments in {path}'
-            )
+    def get_tddft_es_dipoles(self, paths: List[str]) -> List[float]:
+        dipoles = []
+        for path in paths:
+            if path.endswith('.log'):
+                dipole = self._parse_tddft_log(path)
+            elif path.endswith('.csv'):
+                diople = self._parse_csv(path)
+            else:
+                raise ValueError(f'unrecognized file extension {path}')
+            dipoles.append(dipole)
 
         return dipoles
 
@@ -180,21 +199,32 @@ class EDMSelector:
             raw_log = f.read()
 
         data = parser.feed(raw_log)
+        if data is None:
+            raise DipoleNotFoundError(
+                f'did not find dipole moments for {path}')
+
         first_es_idx = 1
         return [es['dipole']['total'] for es in data[first_es_idx:]]
 
     @staticmethod
-    def _parse_tddft_log(path: str) -> List[float]:
-        raise NotImplementedError
+    def _parse_tddft_log(path: str) -> float:
+        parser = get_tddft_parser()
+        with open(path, 'r') as f:
+            raw_log = f.read()
+
+        dipole = parser.feed(raw_log)
+        if dipole is None:
+            raise ValueError(f'did not find dipole moment for {path}')
+
+        return dipole['total']
 
     @staticmethod
-    def _parse_csv(path: str) -> List[float]:
+    def _parse_csv(path: str) -> float:
         with open(path, 'r') as f:
             reader = csv.DictReader(f)
             dipole_field = reader.fieldnames[0]
-            data_rows = list(reader)
-
-        return [float(row[dipole_field]) for row in data_rows]
+            data_line = next(reader)
+            return float(data_line[dipole_field])
 
 
 def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
@@ -249,37 +279,45 @@ def process_opts(gdm_parser: argparse.ArgumentParser,
                  opts: argparse.Namespace):
     parser = gdm_parser if opts.method == GDM_AS else edm_parser
     valid_exts = ('.log', '.csv')
-    for mr_file in opts.mr_files:
-        if not os.path.exists(mr_file):
-            parser.error(f'{mr_file} does not exist')
-
-        _, ext = os.path.splitext(mr_file)
-        if ext not in valid_exts:
-            parser.error(f'{mr_file} must be a .log or .csv file')
-
+    files = opts.mr_files.copy()
     if opts.method == EDM_AS:
-        if len(opts.tddft_files) == 1:
-            td_file = opts.tddft_files[0]
-            if not td_file.endswith('.csv'):
-                parser.error(
-                    'if a single TD-DFT file is given it must be a .csv file')
-        else:
-            for td_file in opts.tddft_files:
-                if not td_file.endswith('.log'):
-                    parser.error(
-                        'if more than one TD-DFT file is given they must all be .log files'
-                    )
+        files.extend(opts.tddft_files)
 
-        for td_file in opts.tddft_files:
-            if not os.path.exists(td_file):
-                parser.error(f'{td_file} does not exist')
+    for file in files:
+        if not os.path.exists(file):
+            parser.error(f'{file} does not exist')
+
+        _, ext = os.path.splitext(file)
+        if ext not in valid_exts:
+            parser.error(f'{file} must be a .log or .csv file')
+
+
+def infer_mr_calc(path: str) -> MultiRefCalc:
+    m = ACTIVE_SPACE_RE.search(path)
+    num_electrons = None
+    num_orbitals = None
+    if m:
+        num_electrons = int(m.group(1))
+        num_orbitals = int(m.group(2))
+    else:
+        logging.warning(f'unable to infer active space for {path}')
+
+    return MultiRefCalc(num_electrons, num_orbitals, path)
 
 
 def main(args: Optional[List[str]] = None):
     parser, gdm_parser, edm_parser = get_parsers()
     opts = parser.parse_args(args)
     process_opts(gdm_parser, edm_parser, opts)
-    print(opts)
+
+    mr_calcs = [infer_mr_calc(path) for path in opts.mr_files]
+    if opts.method == GDM_AS:
+        selector = GDMSelector(mr_calcs, opts.ref_dipole)
+    else:
+        selector = EDMSelector(mr_calcs, opts.tddft_files)
+
+    selection = dataclasses.asdict(selector.select())
+    print(json.dumps(selection, indent=4))
 
 
 if __name__ == '__main__':
