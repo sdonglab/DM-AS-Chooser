@@ -3,12 +3,14 @@ import re
 import os
 import glob
 import csv
+import logging
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 
 MR_DIRNAME_RE = re.compile(r'\d+-\d+')
 GDM_AS = 'gdm-as'
 EDM_AS = 'edm-as'
+logger = logging.getLogger('active_space_chooser')
 
 
 @dataclass
@@ -207,20 +209,12 @@ def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
         help=
         'Run the ground-state dipole moment active-space selection algorithim')
     gdm_parser.add_argument(
-        '-c',
-        '--csv',
-        action='store_true',
-        help=
-        'Read the data in DATA_DIR as CSV files instead of calculation log files'
-    )
-    gdm_parser.add_argument(
-        '-d',
-        '--data-dir',
+        '-m',
+        '--mr-files',
         type=str,
-        default=None,
-        help=
-        'The the directory containing the OpenMolcas multi-reference calculations (default $PWD)'
-    )
+        required=True,
+        nargs='+',
+        help='The path(s) to the multi-reference calculation files')
     gdm_parser.add_argument(
         '-r',
         '--ref-dipole',
@@ -234,28 +228,18 @@ def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
         'Run the excited-state dipole moment active-space selection algorithim'
     )
     edm_parser.add_argument(
-        '-c',
-        '--csv',
-        action='store_true',
-        help=
-        'Read the data in DATA_DIR and REF_TDDFT as CSV files instead of calculation log files'
-    )
-    edm_parser.add_argument(
-        '-d',
-        '--data-dir',
+        '-m',
+        '--mr-files',
         type=str,
-        default=None,
-        help=
-        'The the directory containing the OpenMolcas multi-reference calculations (default $PWD)'
-    )
-    edm_parser.add_argument(
-        '-r',
-        '--ref-tddft',
-        type=str,
-        default=None,
-        help=
-        'The reference Gaussian TD-DFT calculation log file (default to the .log file in DATA_DIR)'
-    )
+        required=True,
+        nargs='+',
+        help='The path(s) to the multi-reference calculation files')
+    edm_parser.add_argument('-t',
+                            '--tddft-files',
+                            type=str,
+                            required=True,
+                            nargs='+',
+                            help='The reference TD-DFT log files ')
 
     return parser, gdm_parser, edm_parser
 
@@ -264,45 +248,38 @@ def process_opts(gdm_parser: argparse.ArgumentParser,
                  edm_parser: argparse.ArgumentParser,
                  opts: argparse.Namespace):
     parser = gdm_parser if opts.method == GDM_AS else edm_parser
-    ext = 'csv' if opts.csv else 'log'
-    if opts.data_dir is None:
-        opts.data_dir = os.getcwd()
+    valid_exts = ('.log', '.csv')
+    for mr_file in opts.mr_files:
+        if not os.path.exists(mr_file):
+            parser.error(f'{mr_file} does not exist')
 
-    if not os.path.exists(opts.data_dir):
-        parser.error(f'{opts.data_dir} does not exist')
+        _, ext = os.path.splitext(mr_file)
+        if ext not in valid_exts:
+            parser.error(f'{mr_file} must be a .log or .csv file')
 
-    mr_file_glob = os.path.join(opts.data_dir, '*', f'*.{ext}')
-    mr_files = []
-    for path in glob.glob(mr_file_glob):
-        if os.path.isfile(path):
-            parent_dir = os.path.basename(os.path.dirname(path))
-            if MR_DIRNAME_RE.fullmatch(parent_dir):
-                mr_files.append(path)
+    if opts.method == EDM_AS:
+        if len(opts.tddft_files) == 1:
+            td_file = opts.tddft_files[0]
+            if not td_file.endswith('.csv'):
+                parser.error(
+                    'if a single TD-DFT file is given it must be a .csv file')
+        else:
+            for td_file in opts.tddft_files:
+                if not td_file.endswith('.log'):
+                    parser.error(
+                        'if more than one TD-DFT file is given they must all be .log files'
+                    )
 
-    opts.mr_files = mr_files
-    if len(mr_files) == 0:
-        parser.error(
-            f'did not find any multi-reference calculation files in {opts.data_dir}'
-        )
-
-    if opts.method == EDM_AS and opts.ref_tddft is None:
-        tddft_file_glob = os.path.join(opts.data_dir, f'*.{ext}')
-        for path in glob.glob(tddft_file_glob):
-            if os.path.isfile(path):
-                opts.ref_tddft = path
-                break
-
-        parser.error(
-            f'did not find td-dft calculation file in {opts.data_dir}')
-
-    if opts.method == EDM_AS and not os.path.exists(opts.ref_tddft):
-        parser.error(f'{opts.ref_tddft} does not exist')
+        for td_file in opts.tddft_files:
+            if not os.path.exists(td_file):
+                parser.error(f'{td_file} does not exist')
 
 
 def main(args: Optional[List[str]] = None):
     parser, gdm_parser, edm_parser = get_parsers()
     opts = parser.parse_args(args)
     process_opts(gdm_parser, edm_parser, opts)
+    print(opts)
 
 
 if __name__ == '__main__':
