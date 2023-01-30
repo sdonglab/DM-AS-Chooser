@@ -152,10 +152,11 @@ class EDMSelector:
             all_mr_dipoles.append(dipoles)
 
         all_mr_errors = []
+        max_es = self.max_es
         for mr_dipoles in all_mr_dipoles:
             mr_errors = [
-                abs(mr_dm - tddft_dm)
-                for mr_dm, tddft_dm in zip(mr_dipoles, tddft_dipoles)
+                abs(mr_dm - tddft_dm) for mr_dm, tddft_dm in zip(
+                    mr_dipoles[:max_es], tddft_dipoles[:max_es])
             ]
             all_mr_errors.append(mr_errors)
 
@@ -168,7 +169,7 @@ class EDMSelector:
         if path.endswith('.log'):
             dipoles = self._parse_mr_log(path)
         elif path.endswith('.csv'):
-            dipoles = self._parse_csv(path)
+            dipoles = self._parse_mr_csv(path)
         else:
             raise ValueError(f'unrecognized file extension {path}')
 
@@ -185,7 +186,7 @@ class EDMSelector:
             if path.endswith('.log'):
                 dipole = self._parse_tddft_log(path)
             elif path.endswith('.csv'):
-                diople = self._parse_csv(path)
+                dipole = self._parse_tddft_csv(path)
             else:
                 raise ValueError(f'unrecognized file extension {path}')
             dipoles.append(dipole)
@@ -207,6 +208,15 @@ class EDMSelector:
         return [es['dipole']['total'] for es in data[first_es_idx:]]
 
     @staticmethod
+    def _parse_mr_csv(path: str) -> List[float]:
+        with open(path, 'r') as f:
+            reader = csv.DictReader(f)
+            dipole_field = reader.fieldnames[0]
+            data_rows = list(reader)
+
+        return [float(row[dipole_field]) for row in data_rows]
+
+    @staticmethod
     def _parse_tddft_log(path: str) -> float:
         parser = get_tddft_parser()
         with open(path, 'r') as f:
@@ -219,7 +229,7 @@ class EDMSelector:
         return dipole['total']
 
     @staticmethod
-    def _parse_csv(path: str) -> float:
+    def _parse_tddft_csv(path: str) -> float:
         with open(path, 'r') as f:
             reader = csv.DictReader(f)
             dipole_field = reader.fieldnames[0]
@@ -293,9 +303,9 @@ def process_opts(gdm_parser: argparse.ArgumentParser,
 
 
 def infer_mr_calc(path: str) -> MultiRefCalc:
-    m = ACTIVE_SPACE_RE.search(path)
     num_electrons = None
     num_orbitals = None
+    m = ACTIVE_SPACE_RE.search(path)
     if m:
         num_electrons = int(m.group(1))
         num_orbitals = int(m.group(2))
