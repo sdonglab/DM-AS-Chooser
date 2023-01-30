@@ -19,6 +19,7 @@ class MultiRefCalc:
 
 
 _RASSCF_MOL_PROPS_RULE = None
+_TDDFT_DIPOLE_MOMENT_RULE = None
 
 
 def get_mr_parser():
@@ -47,29 +48,23 @@ def get_mr_parser():
     return Parser(_RASSCF_MOL_PROPS_RULE())
 
 
-_TDDFT_DIPOLE_MOMENT_RULE = None
-
-
 def get_tddft_parser():
     """
-    Lazily import molextract and return a new parser to parse RASSCF Mol Props
+    Lazily import molextract and return a new parser to parse Gaussian dipole
+    moments
     """
     global _TDDFT_DIPOLE_MOMENT_RULE
     try:
-        from molextract.rules.molcas import log, general
+        from molextract.rules.gaussian import general
         from molextract.parser import Parser
     except ModuleNotFoundError:
         raise ValueError(
             'you must have molextract installed to parse log files')
 
     if _TDDFT_DIPOLE_MOMENT_RULE is None:
-        # TODO
-        class TODO:
-            pass
+        _TDDFT_DIPOLE_MOMENT_RULE = general.DipoleMoment
 
-        _TDDFT_DIPOLE_MOMENT_RULE = TODO
-
-    return Parser(_RASSCF_MOL_PROPS_RULE())
+    return Parser(_TDDFT_DIPOLE_MOMENT_RULE)
 
 
 class GDMSelector:
