@@ -12,7 +12,9 @@ ACTIVE_SPACE_RE = re.compile(r'(\d+)-(\d+)')
 GDM_AS = 'gdm-as'
 EDM_AS = 'edm-as'
 logger = logging.getLogger('active_space_chooser')
-
+handler = logging.StreamHandler()
+logger.addHandler(handler)
+logger.setLevel(logging.DEBUG)
 
 class DipoleNotFoundError(Exception):
     pass
@@ -95,7 +97,7 @@ class GDMSelector:
         valid_mr_calcs = []
         dipole_errors = []
         name = 'ref_dipole'
-        print(f"{name:15s} -> dipole={self.ref_dipole:.6f} err={0:.6f}")
+        logger.debug(f"{name:15s} -> dipole={self.ref_dipole:.6f} err={0:.6f}")
         for mr_calc in self.mr_calcs:
             basename = os.path.basename(mr_calc.path)
             try:
@@ -103,13 +105,13 @@ class GDMSelector:
                 dipole_moments.append(dm)
                 valid_mr_calcs.append(mr_calc)
             except DipoleNotFoundError:
-                print(
+                logger.warning(
                     f'did not find dipole moment in {mr_calc.path}; removing from analysis...'
                 )
                 continue
 
             err = abs(dm - self.ref_dipole)
-            print(f"{basename:15s} -> dipole={dm:.6f} err={err:.6f}")
+            logger.debug(f"{basename:15s} -> dipole={dm:.6f} err={err:.6f}")
             dipole_errors.append(err)
 
         i = dipole_errors.index(min(dipole_errors))
@@ -181,7 +183,7 @@ class EDMSelector:
         fmt_dipoles = '  '.join([f'{dm:.6f}' for dm in tddft_dipoles])
         err = 0
         fmt_errors = '  '.join([f'{err:.6f}'] * max_es)
-        print(f"{name:15s} -> dipoles=({fmt_dipoles})   err=({fmt_errors})   max_err={err:.6f}")
+        logger.debug(f"{name:15s} -> dipoles=({fmt_dipoles})   err=({fmt_errors})   max_err={err:.6f}")
         for mr_calc in self.mr_calcs:
             basename = os.path.basename(mr_calc.path)
             try:
@@ -189,13 +191,13 @@ class EDMSelector:
                 all_mr_dipoles.append(dipoles)
                 valid_mr_calcs.append(mr_calc)
             except DipoleNotFoundError:
-                print(f'did not find dipole moments in {mr_calc.path}; removing from analysis...')
+                logger.debug(f'did not find dipole moments in {mr_calc.path}; removing from analysis...')
 
             zipped = zip(dipoles[:max_es], tddft_dipoles[:max_es])
             mr_errors = [abs(mr_dm - tddft_dm) for mr_dm, tddft_dm in zipped]
             fmt_dipoles = '  '.join([f'{dm:.6f}' for dm in dipoles])
             fmt_errors = '  '.join([f'{err:.6f}' for err in mr_errors])
-            print(f"{basename:15s} -> dipoles=({fmt_dipoles})   err=({fmt_errors})   max_err={max(mr_errors):.6f}")
+            logger.debug(f"{basename:15s} -> dipoles=({fmt_dipoles})   err=({fmt_errors})   max_err={max(mr_errors):.6f}")
             all_mr_errors.append(mr_errors)
 
         max_mr_errors = [max(mr_errors) for mr_errors in all_mr_errors]
