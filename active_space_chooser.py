@@ -4,7 +4,7 @@ import os
 import json
 import csv
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
 import dataclasses
 from dataclasses import dataclass
 
@@ -75,25 +75,45 @@ def get_tddft_parser():
 
 
 class GDMSelector:
-    def __init__(self, mr_calcs: List[MultiRefCalc], ref_dipole: float):
+    def __init__(self, mr_calcs: List[MultiRefCalc], ref_dipole: Union[float,
+                                                                       str]):
         self.mr_calcs = mr_calcs
+        try:
+            ref_dipole = float(ref_dipole)
+        except ValueError:
+            if ref_dipole.endswith('.csv'):
+                ref_dipole = self._parse_csv(ref_dipole)
+            elif ref_dipole.endswith('.log'):
+                ref_dipole = self._parse_tddft_log(ref_dipole)
+            else:
+                raise ValueError(f'unrecognized file extension {ref_dipole}')
+
         self.ref_dipole = ref_dipole
 
     def select(self) -> MultiRefCalc:
         dipole_moments = []
+        valid_mr_calcs = []
+        dipole_errors = []
+        name = 'ref_dipole'
+        print(f"{name:15s} -> dipole={self.ref_dipole:.6f} err={0:.6f}")
         for mr_calc in self.mr_calcs:
+            basename = os.path.basename(mr_calc.path)
             try:
                 dm = self.get_ground_state_dipole(mr_calc.path)
                 dipole_moments.append(dm)
+                valid_mr_calcs.append(mr_calc)
             except DipoleNotFoundError:
-                logger.warning(
+                print(
                     f'did not find dipole moment in {mr_calc.path}; removing from analysis...'
                 )
+                continue
 
-        dipole_errors = [abs(dm - self.ref_dipole) for dm in dipole_moments]
+            err = abs(dm - self.ref_dipole)
+            print(f"{basename:15s} -> dipole={dm:.6f} err={err:.6f}")
+            dipole_errors.append(err)
+
         i = dipole_errors.index(min(dipole_errors))
-
-        return self.mr_calcs[i]
+        return valid_mr_calcs[i]
 
     @staticmethod
     def get_ground_state_dipole(path: str) -> float:
@@ -116,6 +136,18 @@ class GDMSelector:
 
         ground_state_idx = 0
         return data[ground_state_idx]['dipole']['total']
+
+    @staticmethod
+    def _parse_tddft_log(path: str) -> float:
+        parser = get_tddft_parser()
+        with open(path, 'r') as f:
+            raw_log = f.read()
+
+        dipole = parser.feed(raw_log)
+        if dipole is None:
+            raise ValueError(f'did not find dipole moment for {path}')
+
+        return dipole['total']
 
     @staticmethod
     def _parse_csv(path: str) -> float:
@@ -258,9 +290,10 @@ def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
     gdm_parser.add_argument(
         '-r',
         '--ref-dipole',
-        type=float,
         required=True,
-        help='The reference dipole moment given as a floating point number')
+        help=
+        'The reference dipole moment given as a floating point number or path to a TD-DFT calculation file'
+    )
 
     edm_parser = subparsers.add_parser(
         EDM_AS,
