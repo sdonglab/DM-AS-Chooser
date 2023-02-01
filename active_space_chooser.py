@@ -174,28 +174,33 @@ class EDMSelector:
     def select(self) -> MultiRefCalc:
         tddft_dipoles = self.get_tddft_es_dipoles(self.tddft_calcs)
         all_mr_dipoles = []
-        for mr_calc in self.mr_calcs:
-            try:
-                dipoles = self.get_mr_es_dipoles(mr_calc.path)
-            except DipoleNotFoundError:
-                logger.warning(
-                    f'did not find dipole moments in {mr_calc.path}; removing from analysis...'
-                )
-            all_mr_dipoles.append(dipoles)
-
+        valid_mr_calcs = []
         all_mr_errors = []
         max_es = self.max_es
-        for mr_dipoles in all_mr_dipoles:
-            mr_errors = [
-                abs(mr_dm - tddft_dm) for mr_dm, tddft_dm in zip(
-                    mr_dipoles[:max_es], tddft_dipoles[:max_es])
-            ]
+        name = 'ref_dipole'
+        fmt_dipoles = '  '.join([f'{dm:.6f}' for dm in tddft_dipoles])
+        err = 0
+        fmt_errors = '  '.join([f'{err:.6f}'] * max_es)
+        print(f"{name:15s} -> dipoles=({fmt_dipoles})   err=({fmt_errors})   max_err={err:.6f}")
+        for mr_calc in self.mr_calcs:
+            basename = os.path.basename(mr_calc.path)
+            try:
+                dipoles = self.get_mr_es_dipoles(mr_calc.path)
+                all_mr_dipoles.append(dipoles)
+                valid_mr_calcs.append(mr_calc)
+            except DipoleNotFoundError:
+                print(f'did not find dipole moments in {mr_calc.path}; removing from analysis...')
+
+            zipped = zip(dipoles[:max_es], tddft_dipoles[:max_es])
+            mr_errors = [abs(mr_dm - tddft_dm) for mr_dm, tddft_dm in zipped]
+            fmt_dipoles = '  '.join([f'{dm:.6f}' for dm in dipoles])
+            fmt_errors = '  '.join([f'{err:.6f}' for err in mr_errors])
+            print(f"{basename:15s} -> dipoles=({fmt_dipoles})   err=({fmt_errors})   max_err={max(mr_errors):.6f}")
             all_mr_errors.append(mr_errors)
 
         max_mr_errors = [max(mr_errors) for mr_errors in all_mr_errors]
         i = max_mr_errors.index(min(max_mr_errors))
-
-        return self.mr_calcs[i]
+        return valid_mr_calcs[i]
 
     def get_mr_es_dipoles(self, path: str) -> List[float]:
         if path.endswith('.log'):
@@ -222,6 +227,11 @@ class EDMSelector:
             else:
                 raise ValueError(f'unrecognized file extension {path}')
             dipoles.append(dipole)
+
+        if len(dipoles) < self.max_es:
+            raise ValueError(
+                f'did not find at least {self.max_es} excited state dipole moments in {path}'
+            )
 
         return dipoles
 
@@ -360,7 +370,7 @@ def main(args: Optional[List[str]] = None):
         selector = EDMSelector(mr_calcs, opts.tddft_files)
 
     selection = dataclasses.asdict(selector.select())
-    print(json.dumps(selection, indent=4))
+    print(json.dumps(selection))
 
 
 if __name__ == '__main__':
