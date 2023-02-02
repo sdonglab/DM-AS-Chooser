@@ -114,6 +114,9 @@ class GDMSelector:
             logger.debug(f"{basename:15s} -> dipole={dm:.6f} err={err:.6f}")
             dipole_errors.append(err)
 
+        if len(valid_mr_calcs) == 0:
+            raise ValueError('no valid multi reference calcs found; cannot do analysis')
+
         i = dipole_errors.index(min(dipole_errors))
         return valid_mr_calcs[i]
 
@@ -132,8 +135,13 @@ class GDMSelector:
         with open(path, 'r') as f:
             raw_log = f.read()
 
-        data = parser.feed(raw_log)
-        if data is None:
+        try:
+            data = parser.feed(raw_log)
+        except ValueError:
+            # Issue when attempting to parse
+            data = None
+
+        if data is None or len(data) == 0:
             raise DipoleNotFoundError(f'no dipole for {path}')
 
         ground_state_idx = 0
@@ -145,7 +153,12 @@ class GDMSelector:
         with open(path, 'r') as f:
             raw_log = f.read()
 
-        dipole = parser.feed(raw_log)
+        try:
+            dipole = parser.feed(raw_log)
+        except ValueError:
+            # Issue when attempting to parse
+            dipole = None
+
         if dipole is None:
             raise ValueError(f'did not find dipole moment for {path}')
 
@@ -200,6 +213,9 @@ class EDMSelector:
             logger.debug(f"{basename:15s} -> dipoles=({fmt_dipoles})   err=({fmt_errors})   max_err={max(mr_errors):.6f}")
             all_mr_errors.append(mr_errors)
 
+        if len(valid_mr_calcs) == 0:
+            raise ValueError('no valid multi reference calcs found; cannot do analysis')
+
         max_mr_errors = [max(mr_errors) for mr_errors in all_mr_errors]
         i = max_mr_errors.index(min(max_mr_errors))
         return valid_mr_calcs[i]
@@ -243,8 +259,13 @@ class EDMSelector:
         with open(path, 'r') as f:
             raw_log = f.read()
 
-        data = parser.feed(raw_log)
-        if data is None:
+        try:
+            data = parser.feed(raw_log)
+        except ValueError:
+            # Issue when attempting to parse
+            data = None
+
+        if data is None or len(data) == 0:
             raise DipoleNotFoundError(
                 f'did not find dipole moments for {path}')
 
@@ -266,7 +287,11 @@ class EDMSelector:
         with open(path, 'r') as f:
             raw_log = f.read()
 
-        dipole = parser.feed(raw_log)
+        try:
+            dipole = parser.feed(raw_log)
+        except ValueError:
+            dipole = None
+
         if dipole is None:
             raise ValueError(f'did not find dipole moment for {path}')
 
