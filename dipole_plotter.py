@@ -24,7 +24,20 @@ SIMPLE_CPK_COLORS = {
     'P': 'orange',
     'S': 'yellow',
 }
-ATOM_MARKER_SIZE = 250
+
+HYDROGEN_MARKER_SIZE = 100
+HYDROGEN_RADIUS = 25
+DEFAULT_ATOMIC_RADIUS = HYDROGEN_RADIUS * 4
+SIMPLE_ATOMIC_RADII = {
+    'H': HYDROGEN_RADIUS,
+    'C': 70,
+    'N': 65, 
+    'O': 60,
+    'F': 50,
+    'CL': 100,
+    'P': 100,
+    'S': 100,
+}
 
 logger = logging.getLogger('active_space_chooser')
 handler = logging.StreamHandler()
@@ -42,25 +55,9 @@ class DipolePlotter:
     def __init__(self, mr_files):
         self.mr_files = mr_files
         self.fig = plt.figure()
-        # self.ax = self.fig.add_subplot(1, 1, 1)
         self.ax = self.fig.add_subplot(1, 1, 1, projection='3d')
 
-    def plot(self):
-        # Move left y-axis and bottom x-axis to centre, passing through (0,0)
-        # self.ax.spines['left'].set_position('zero')
-        # self.ax.spines['bottom'].set_position('zero')
-
-        # Hide upper and right axes
-        # self.ax.spines['right'].set_visible(False)
-        # self.ax.spines['top'].set_visible(False)
-        # self.ax.set_ylim(bottom=-.4e-6, top=.4e-6)
-        # self.ax.set_xlim(left=-.4e-6, right=.4e-6)
-
-
-        # Show ticks in the left and lower axes only
-        # self.ax.xaxis.set_ticks_position('bottom')
-        # self.ax.yaxis.set_ticks_position('left')
-
+    def plot(self, show_legend=True):
         plot_coords = True
         for path in self.mr_files:
             stem = pathlib.Path(path).stem
@@ -68,6 +65,7 @@ class DipolePlotter:
                 coords, mol_props = self._parse_mr_file(path)
             except ValueError:
                 continue
+            logger.debug(f'processed {stem}')
 
             if plot_coords:
                 self._plot_coords(coords)
@@ -82,11 +80,11 @@ class DipolePlotter:
         self.ax.set_xlabel('X Dipole (Ang)')
         self.ax.set_ylabel('Y Dipole (Ang)')
         self.ax.set_zlabel('Z Dipole (Ang)')
-        self.ax.legend()
+        if show_legend:
+            self.ax.legend()
 
     def _parse_mr_file(self, path):
         parser = Parser(RASSCFModule())
-        print(path)
         try:
             with open(path, 'r') as f:
                 raw_data = f.read()
@@ -106,24 +104,31 @@ class DipolePlotter:
     def _plot_coords(self, coords):
         xs, ys, zs = [], [], []
         colors = []
+        sizes = []
         for element, x, y, z in coords:
-            colors.append(self._get_color(element))
+            color, size = self._get_atom_visuals(element)
+            colors.append(color)
+            sizes.append(size)
             xs.append(x)
             ys.append(y)
             zs.append(z)
         
-        self.ax.scatter(xs, ys, zs, s=ATOM_MARKER_SIZE, c=colors)
+        self.ax.scatter(xs, ys, zs, s=sizes, c=colors, edgecolors='black')
     
-    def _get_color(self, element):
+    def _get_atom_visuals(self, element):
         element = element.rstrip(digits)
-        return SIMPLE_CPK_COLORS.get(element, DEFAULT_COLOR)
+        color = SIMPLE_CPK_COLORS.get(element, DEFAULT_COLOR)
+        radius = SIMPLE_ATOMIC_RADII.get(element, DEFAULT_ATOMIC_RADIUS)
+        size = (radius / HYDROGEN_RADIUS) * HYDROGEN_MARKER_SIZE 
+
+        return color, size
 
 
     def show(self):
         plt.show()
 
     def save(self, path):
-        self.fig.savefig(path)
+        raise NotImplementedError
 
 
 def get_parser():
@@ -133,6 +138,11 @@ def get_parser():
         type=str,
         nargs='+',
         help='The path(s) to the multi-reference calculation log files')
+    parser.add_argument(
+        '--no-legend',
+        action='store_true',
+        help="don't display a legend in the plot"
+    )
 
     return parser
 
@@ -148,13 +158,11 @@ def process_opts(parser, opts):
 def main(args=None):
     parser = get_parser()
     opts = parser.parse_args(args)
-    print(args, opts)
     process_opts(parser, opts)
 
     plotter = DipolePlotter(opts.mr_files)
-    plotter.plot()
+    plotter.plot(show_legend=not opts.no_legend)
     plotter.show()
-    plotter.save('foo.png')
 
 
 if __name__ == '__main__':
