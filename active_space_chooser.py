@@ -14,8 +14,11 @@ GDM_AS = 'gdm-as'
 EDM_AS = 'edm-as'
 CSV_EXT = '.csv'
 LOG_EXT = '.log'
+REF_DIPOLE_NAME = 'ref_dipole'
 VALID_EXTS = (CSV_EXT, LOG_EXT)
-NO_MOLEXTRACT_ERROR = 'you must have molextract installed to parse log files'
+NO_MOLEXTRACT_ERR = 'you must have molextract installed to parse log files'
+RM_FROM_ANALYSIS_ERR = 'did not find dipole moments in %s; removing from analysis...'
+NO_VALID_MR_ERR = 'no valid multi reference calcs found; cannot do analysis'
 logger = logging.getLogger('active_space_chooser')
 handler = logging.StreamHandler()
 logger.addHandler(handler)
@@ -46,7 +49,7 @@ def get_mr_parser():
         from molextract.rules.molcas import log, general
         from molextract.parser import Parser
     except ModuleNotFoundError:
-        raise ValueError(NO_MOLEXTRACT_ERROR)
+        raise ValueError(NO_MOLEXTRACT_ERR)
 
     if _RASSCF_MOL_PROPS_RULE is None:
 
@@ -72,7 +75,7 @@ def get_tddft_parser():
         from molextract.rules.gaussian import general
         from molextract.parser import Parser
     except ModuleNotFoundError:
-        raise ValueError(NO_MOLEXTRACT_ERROR)
+        raise ValueError(NO_MOLEXTRACT_ERR)
 
     if _TDDFT_DIPOLE_MOMENT_RULE is None:
         _TDDFT_DIPOLE_MOMENT_RULE = general.DipoleMoment
@@ -109,7 +112,7 @@ def parse_tddft_log(path: str) -> Dict[str, float]:
         dipole = None
 
     if dipole is None:
-        raise ValueError(f'did not find dipole moment for {path}')
+        raise DipoleNotFoundError(f'no dipole for {path}')
 
     return dipole
 
@@ -118,55 +121,49 @@ class GDMSelector:
     def __init__(self, mr_calcs: List[MultiRefCalc], ref_dipole: Union[float,
                                                                        str]):
         self.mr_calcs = mr_calcs
-        try:
-            ref_dipole = float(ref_dipole)
-        except ValueError:
+        if type(ref_dipole) is str:
             if ref_dipole.endswith(CSV_EXT):
                 ref_dipole = self._parse_csv(ref_dipole)
             elif ref_dipole.endswith(LOG_EXT):
-                ref_dipole = parse_tddft_log(ref_dipole)
-                ref_dipole = ref_dipole['total']
+                ref_dipole = parse_tddft_log(ref_dipole)['total']
             else:
                 raise ValueError(f'unrecognized file extension {ref_dipole}')
 
         self.ref_dipole = ref_dipole
 
     def select(self) -> MultiRefCalc:
-        dipole_moments = []
         valid_mr_calcs = []
         dipole_errors = []
-        name = 'ref_dipole'
-        logger.debug(f"{name:15s} -> dipole={self.ref_dipole:.6f} err={0:.6f}")
+        self.log_dipole(REF_DIPOLE_NAME, self.ref_dipole, 0)
         for mr_calc in self.mr_calcs:
             basename = os.path.basename(mr_calc.path)
             try:
-                dm = self.get_ground_state_dipole(mr_calc.path)
-                dipole_moments.append(dm)
-                valid_mr_calcs.append(mr_calc)
+                dipole = self.get_ground_state_dipole(mr_calc.path)
             except DipoleNotFoundError:
-                logger.warning(
-                    f'did not find dipole moment in {mr_calc.path}; removing from analysis...'
-                )
+                logger.debug(RM_FROM_ANALYSIS_ERR % mr_calc.path)
                 continue
 
-            err = abs(dm - self.ref_dipole)
-            logger.debug(f"{basename:15s} -> dipole={dm:.6f} err={err:.6f}")
+            valid_mr_calcs.append(mr_calc)
+            err = abs(dipole - self.ref_dipole)
+            self.log_dipole(basename, dipole, err)
             dipole_errors.append(err)
 
         if len(valid_mr_calcs) == 0:
-            raise ValueError(
-                'no valid multi reference calcs found; cannot do analysis')
+            raise ValueError(NO_VALID_MR_ERR)
 
         i = dipole_errors.index(min(dipole_errors))
         return valid_mr_calcs[i]
 
+    def log_dipole(self, name: str, dipole: float, err: float):
+        logger.debug(f"{name:20s} -> dipole={dipole:.6f} err={err:.6f}")
+
     @staticmethod
     def get_ground_state_dipole(path: str) -> float:
-        if path.endswith('.log'):
+        if path.endswith(LOG_EXT):
             dipoles = parse_mr_log(path)
             ground_state_index = 0
             return dipoles[ground_state_index]['dipole']['total']
-        elif path.endswith('.csv'):
+        elif path.endswith(CSV_EXT):
             return GDMSelector._parse_csv(path)
         else:
             raise ValueError(f'unrecognized file extension {path}')
@@ -181,11 +178,7 @@ class GDMSelector:
 
 
 class EDMSelector:
-    DEFAULT_MAX_EXCITED_STATE = 3
-
-    def __init__(self,
-                 mr_calcs: List[MultiRefCalc],
-                 tddft_calcs: List[str],
+    def __init__(self, mr_calcs: List[MultiRefCalc], tddft_calcs: List[str],
                  es_spec: List[int]):
         if len(tddft_calcs) != len(es_spec):
             raise ValueError(f'mismatch between es_spec and tddft_calcs')
@@ -194,63 +187,55 @@ class EDMSelector:
         self.es_spec = es_spec
 
     def select(self) -> MultiRefCalc:
-        tddft_dipoles = self.get_tddft_es_dipoles(self.tddft_calcs)
-        all_mr_dipoles = []
+        es_states = ' '.join([f"S{i}" for i in self.es_spec])
+        logger.debug(f'Analyzing {es_states}')
+
         valid_mr_calcs = []
         all_mr_errors = []
-        max_es = self.max_es
-        name = 'ref_dipole'
-        fmt_dipoles = '  '.join([f'{dm:.6f}' for dm in tddft_dipoles])
-        err = 0
-        fmt_errors = '  '.join([f'{err:.6f}'] * max_es)
-        logger.debug(
-            f"{name:15s} -> dipoles=({fmt_dipoles})   err=({fmt_errors})   max_err={err:.6f}"
-        )
+        tddft_dipoles = self.get_tddft_es_dipoles(self.tddft_calcs)
+        self.log_dipole(REF_DIPOLE_NAME, tddft_dipoles,
+                        [0] * len(self.es_spec))
+
         for mr_calc in self.mr_calcs:
             basename = os.path.basename(mr_calc.path)
             try:
                 dipoles = self.get_mr_es_dipoles(mr_calc.path)
-                all_mr_dipoles.append(dipoles)
-                valid_mr_calcs.append(mr_calc)
             except DipoleNotFoundError:
-                logger.debug(
-                    f'did not find dipole moments in {mr_calc.path}; removing from analysis...'
-                )
+                logger.debug(RM_FROM_ANALYSIS_ERR % mr_calc.path)
                 continue
 
-            zipped = zip(dipoles[:max_es], tddft_dipoles[:max_es])
+            valid_mr_calcs.append(mr_calc)
+            zipped = zip(dipoles, tddft_dipoles)
             mr_errors = [abs(mr_dm - tddft_dm) for mr_dm, tddft_dm in zipped]
-            fmt_dipoles = '  '.join([f'{dm:.6f}' for dm in dipoles])
-            fmt_errors = '  '.join([f'{err:.6f}' for err in mr_errors])
-            logger.debug(
-                f"{basename:15s} -> dipoles=({fmt_dipoles})   err=({fmt_errors})   max_err={max(mr_errors):.6f}"
-            )
+            self.log_dipole(basename, dipoles, mr_errors)
             all_mr_errors.append(mr_errors)
 
         if len(valid_mr_calcs) == 0:
-            raise ValueError(
-                'no valid multi reference calcs found; cannot do analysis')
+            raise ValueError(NO_VALID_MR_ERR)
 
         max_mr_errors = [max(mr_errors) for mr_errors in all_mr_errors]
         i = max_mr_errors.index(min(max_mr_errors))
         return valid_mr_calcs[i]
 
+    def log_dipole(self, name: str, dipoles: List[float], errs: List[float]):
+        fmt_dipoles = '  '.join([f'{dm:.6f}' for dm in dipoles])
+        fmt_errors = '  '.join([f'{err:.6f}' for err in errs])
+        max_err = max(errs)
+        logger.debug(
+            f"{name:20s} -> dipoles=({fmt_dipoles})   err=({fmt_errors})  max_err={max_err:.6f}"
+        )
+
     def get_mr_es_dipoles(self, path: str) -> List[float]:
         if path.endswith(LOG_EXT):
             dipoles = parse_mr_log(path)
-            first_es_idx = 1
-            dipoles = [es['dipole']['total'] for es in dipoles[first_es_idx:]]
+            dipoles = [es['dipole']['total'] for es in dipoles]
         elif path.endswith(CSV_EXT):
             dipoles = self._parse_mr_csv(path)
         else:
             raise ValueError(f'unrecognized file extension {path}')
 
-        if len(dipoles) < self.max_es:
-            raise ValueError(
-                f'did not find at least {self.max_es} excited state dipole moments in {path}'
-            )
-
-        return dipoles
+        selected_dipoles = [dipoles[es_index] for es_index in self.es_spec]
+        return selected_dipoles
 
     def get_tddft_es_dipoles(self, paths: List[str]) -> List[float]:
         dipoles = []
@@ -263,11 +248,6 @@ class EDMSelector:
             else:
                 raise ValueError(f'unrecognized file extension {path}')
             dipoles.append(dipole)
-
-        if len(dipoles) < self.max_es:
-            raise ValueError(
-                f'did not find at least {self.max_es} excited state dipole moments in {path}'
-            )
 
         return dipoles
 
@@ -329,8 +309,9 @@ def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
         help='The path(s) to the multi-reference calculation files')
     edm_parser.add_argument(
         '-S',
-        type=str,
-        default='1,2,3',
+        type=int,
+        nargs='+',
+        default=[1, 2, 3],
         help='A comma seperated string of the provided excited states')
     edm_parser.add_argument('-t',
                             '--tddft-files',
@@ -349,12 +330,14 @@ def process_opts(gdm_parser: argparse.ArgumentParser,
     files = opts.mr_files.copy()
     if opts.method == EDM_AS:
         files.extend(opts.tddft_files)
-        if not EXCITED_STATES_RE.match(opts.S):
-            parser.error(
-                "excited state specification must be a comma seperated list of integer"
-            )
 
-        opts.S = [int(n) for n in opts.S.split(',')]
+        for es in opts.S:
+            if es < 0:
+                parser.error('excited state indexes must be non-negative')
+
+        if len(opts.S) != len(set(opts.S)):
+            parser.error('cannot have duplicates in excited state spec')
+
         if len(opts.S) != len(opts.tddft_files):
             parser.error(
                 f"number of excited states in -S ({len(opts.S)}) do not match the number of tddft reference vals ({len(opts.tddft_files)})"
@@ -366,7 +349,7 @@ def process_opts(gdm_parser: argparse.ArgumentParser,
 
         _, ext = os.path.splitext(file)
         if ext not in VALID_EXTS:
-            parser.error(f'{file} must be a .log or .csv file')
+            parser.error(f'{file} must be a {LOG_EXT} or {CSV_EXT} file')
 
 
 def infer_mr_calc(path: str) -> MultiRefCalc:
