@@ -9,8 +9,12 @@ import dataclasses
 from dataclasses import dataclass
 
 ACTIVE_SPACE_RE = re.compile(r'(\d+)-(\d+)')
+EXCITED_STATES_RE = re.compile(r'^([1-9][0-9]*,)*([1-9][0-9]*){1}$')
 GDM_AS = 'gdm-as'
 EDM_AS = 'edm-as'
+CSV_EXT = '.csv'
+LOG_EXT = '.log'
+VALID_EXTS = (CSV_EXT, LOG_EXT)
 NO_MOLEXTRACT_ERROR = 'you must have molextract installed to parse log files'
 logger = logging.getLogger('active_space_chooser')
 handler = logging.StreamHandler()
@@ -117,9 +121,9 @@ class GDMSelector:
         try:
             ref_dipole = float(ref_dipole)
         except ValueError:
-            if ref_dipole.endswith('.csv'):
+            if ref_dipole.endswith(CSV_EXT):
                 ref_dipole = self._parse_csv(ref_dipole)
-            elif ref_dipole.endswith('.log'):
+            elif ref_dipole.endswith(LOG_EXT):
                 ref_dipole = parse_tddft_log(ref_dipole)
                 ref_dipole = ref_dipole['total']
             else:
@@ -182,12 +186,12 @@ class EDMSelector:
     def __init__(self,
                  mr_calcs: List[MultiRefCalc],
                  tddft_calcs: List[str],
-                 max_es: int = DEFAULT_MAX_EXCITED_STATE):
-        if len(tddft_calcs) < max_es:
-            raise ValueError(f'there must be at least {max_es} tddft calcs')
+                 es_spec: List[int]):
+        if len(tddft_calcs) != len(es_spec):
+            raise ValueError(f'mismatch between es_spec and tddft_calcs')
         self.mr_calcs = mr_calcs
         self.tddft_calcs = tddft_calcs
-        self.max_es = max_es
+        self.es_spec = es_spec
 
     def select(self) -> MultiRefCalc:
         tddft_dipoles = self.get_tddft_es_dipoles(self.tddft_calcs)
@@ -212,6 +216,7 @@ class EDMSelector:
                 logger.debug(
                     f'did not find dipole moments in {mr_calc.path}; removing from analysis...'
                 )
+                continue
 
             zipped = zip(dipoles[:max_es], tddft_dipoles[:max_es])
             mr_errors = [abs(mr_dm - tddft_dm) for mr_dm, tddft_dm in zipped]
@@ -231,11 +236,11 @@ class EDMSelector:
         return valid_mr_calcs[i]
 
     def get_mr_es_dipoles(self, path: str) -> List[float]:
-        if path.endswith('.log'):
+        if path.endswith(LOG_EXT):
             dipoles = parse_mr_log(path)
             first_es_idx = 1
             dipoles = [es['dipole']['total'] for es in dipoles[first_es_idx:]]
-        elif path.endswith('.csv'):
+        elif path.endswith(CSV_EXT):
             dipoles = self._parse_mr_csv(path)
         else:
             raise ValueError(f'unrecognized file extension {path}')
@@ -250,10 +255,10 @@ class EDMSelector:
     def get_tddft_es_dipoles(self, paths: List[str]) -> List[float]:
         dipoles = []
         for path in paths:
-            if path.endswith('.log'):
+            if path.endswith(LOG_EXT):
                 dipole = parse_tddft_log(path)
                 dipole = dipole['total']
-            elif path.endswith('.csv'):
+            elif path.endswith(CSV_EXT):
                 dipole = self._parse_tddft_csv(path)
             else:
                 raise ValueError(f'unrecognized file extension {path}')
@@ -322,6 +327,11 @@ def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
         required=True,
         nargs='+',
         help='The path(s) to the multi-reference calculation files')
+    edm_parser.add_argument(
+        '-S',
+        type=str,
+        default='1,2,3',
+        help='A comma seperated string of the provided excited states')
     edm_parser.add_argument('-t',
                             '--tddft-files',
                             type=str,
@@ -336,17 +346,26 @@ def process_opts(gdm_parser: argparse.ArgumentParser,
                  edm_parser: argparse.ArgumentParser,
                  opts: argparse.Namespace):
     parser = gdm_parser if opts.method == GDM_AS else edm_parser
-    valid_exts = ('.log', '.csv')
     files = opts.mr_files.copy()
     if opts.method == EDM_AS:
         files.extend(opts.tddft_files)
+        if not EXCITED_STATES_RE.match(opts.S):
+            parser.error(
+                "excited state specification must be a comma seperated list of integer"
+            )
+
+        opts.S = [int(n) for n in opts.S.split(',')]
+        if len(opts.S) != len(opts.tddft_files):
+            parser.error(
+                f"number of excited states in -S ({len(opts.S)}) do not match the number of tddft reference vals ({len(opts.tddft_files)})"
+            )
 
     for file in files:
         if not os.path.exists(file):
             parser.error(f'{file} does not exist')
 
         _, ext = os.path.splitext(file)
-        if ext not in valid_exts:
+        if ext not in VALID_EXTS:
             parser.error(f'{file} must be a .log or .csv file')
 
 
@@ -372,7 +391,7 @@ def main(args: Optional[List[str]] = None):
     if opts.method == GDM_AS:
         selector = GDMSelector(mr_calcs, opts.ref_dipole)
     else:
-        selector = EDMSelector(mr_calcs, opts.tddft_files)
+        selector = EDMSelector(mr_calcs, opts.tddft_files, opts.S)
 
     selection = dataclasses.asdict(selector.select())
     print(json.dumps(selection))

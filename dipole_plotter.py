@@ -31,7 +31,7 @@ DEFAULT_ATOMIC_RADIUS = HYDROGEN_RADIUS * 4
 SIMPLE_ATOMIC_RADII = {
     'H': HYDROGEN_RADIUS,
     'C': 70,
-    'N': 65, 
+    'N': 65,
     'O': 60,
     'F': 50,
     'CL': 100,
@@ -99,8 +99,8 @@ class DipolePlotter:
 
         coords, mol_props = parsed_data
         # TODO: verify coords are consistent across files
-        return coords, mol_props 
-    
+        return coords, mol_props
+
     def _plot_coords(self, coords):
         xs, ys, zs = [], [], []
         colors = []
@@ -112,17 +112,16 @@ class DipolePlotter:
             xs.append(x)
             ys.append(y)
             zs.append(z)
-        
+
         self.ax.scatter(xs, ys, zs, s=sizes, c=colors, edgecolors='black')
-    
+
     def _get_atom_visuals(self, element):
         element = element.rstrip(digits)
         color = SIMPLE_CPK_COLORS.get(element, DEFAULT_COLOR)
         radius = SIMPLE_ATOMIC_RADII.get(element, DEFAULT_ATOMIC_RADIUS)
-        size = (radius / HYDROGEN_RADIUS) * HYDROGEN_MARKER_SIZE 
+        size = (radius / HYDROGEN_RADIUS) * HYDROGEN_MARKER_SIZE
 
         return color, size
-
 
     def show(self):
         plt.show()
@@ -138,11 +137,9 @@ def get_parser():
         type=str,
         nargs='+',
         help='The path(s) to the multi-reference calculation log files')
-    parser.add_argument(
-        '--no-legend',
-        action='store_true',
-        help="don't display a legend in the plot"
-    )
+    parser.add_argument('--no-legend',
+                        action='store_true',
+                        help="don't display a legend in the plot")
 
     return parser
 
