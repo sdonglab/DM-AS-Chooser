@@ -193,8 +193,8 @@ class EDMSelector:
         valid_mr_calcs = []
         all_mr_errors = []
         tddft_dipoles = self.get_tddft_es_dipoles(self.tddft_calcs)
-        self.log_dipole(REF_DIPOLE_NAME, tddft_dipoles,
-                        [0] * len(self.es_spec))
+        errors = [0] * len(self.es_spec)
+        self.log_dipole(REF_DIPOLE_NAME, tddft_dipoles, errors)
 
         for mr_calc in self.mr_calcs:
             basename = os.path.basename(mr_calc.path)
@@ -340,7 +340,7 @@ def process_opts(gdm_parser: argparse.ArgumentParser,
 
         if len(opts.S) != len(opts.tddft_files):
             parser.error(
-                f"number of excited states in -S ({len(opts.S)}) do not match the number of tddft reference vals ({len(opts.tddft_files)})"
+                f"number of excited states in -S ({len(opts.S)}) dooes not match the number of tddft reference vals ({len(opts.tddft_files)})"
             )
 
     for file in files:
