@@ -279,7 +279,7 @@ def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
     gdm_parser = subparsers.add_parser(
         GDM_AS,
         help=
-        'Run the ground-state dipole moment active-space selection algorithim')
+        'Run the ground-state dipole moment active-space selection algorithm')
     gdm_parser.add_argument(
         '-m',
         '--mr-files',
@@ -298,7 +298,7 @@ def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
     edm_parser = subparsers.add_parser(
         EDM_AS,
         help=
-        'Run the excited-state dipole moment active-space selection algorithim'
+        'Run the excited-state dipole moment active-space selection algorithm'
     )
     edm_parser.add_argument(
         '-m',
@@ -312,13 +312,13 @@ def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
         type=int,
         nargs='+',
         default=[1, 2, 3],
-        help='A comma seperated string of the provided excited states')
+        help='which ground / excited states to use (defaults to -S 1 2 3)')
     edm_parser.add_argument('-t',
                             '--tddft-files',
                             type=str,
                             required=True,
                             nargs='+',
-                            help='The reference TD-DFT log files ')
+                            help='The path(s) to the reference excited state calculation files')
 
     return parser, gdm_parser, edm_parser
 
