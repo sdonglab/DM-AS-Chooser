@@ -37,7 +37,7 @@ printed to `stderr`. If a multi-reference calculation file does not have any dat
 from the analysis and an appropriate log message will be printed.
 
 The final selected active space will be printed to `stdout` as a JSON with the following format
-```json
+```
 {"num_electrons": <n_elec>, "num_orbitals": <n_orb>, "path": <path to file>}
 ```
 
