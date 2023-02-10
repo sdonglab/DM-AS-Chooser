@@ -340,8 +340,13 @@ def process_opts(gdm_parser: argparse.ArgumentParser,
 
         if len(opts.S) != len(opts.tddft_files):
             parser.error(
-                f"number of excited states in -S ({len(opts.S)}) dooes not match the number of tddft reference vals ({len(opts.tddft_files)})"
+                f"number of excited states in -S ({len(opts.S)}) does not match the number of tddft reference vals ({len(opts.tddft_files)})"
             )
+    elif opts.method == GDM_AS:
+        try:
+            opts.ref_dipole = float(opts.ref_dipole)
+        except ValueError:
+            files.append(opts.ref_dipole)
 
     for file in files:
         if not os.path.exists(file):
