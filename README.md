@@ -13,8 +13,8 @@ Files that contain dipole moments from multiconfigurational calculations and fil
 Each multiconfigurational calculation is assumed to have a single file per active space. The name
 of the file is encouraged to have the syntax `<active_electrons>-<active_orbitals>` in the name
 though this is not required. For example, some filenames could be
-- `mr-14-14.log`
-- `mr_benzene_10-10.log`
+- `mc-14-14.log`
+- `casscf_benzene_10-10.log`
 - `4-4.csv`
 - `benzene.csv`
 
