@@ -1,13 +1,13 @@
-# active-space-chooser
-Active Space Chooser (ASC) implements the recommended active space selection algorithm
-as described in this [paper](TODO).
+# Dipole Moment Based Active Space (DM-AS) Chooser
+DM-AS Chooser implements the recommended active space selection algorithm
+as described in this [paper](TODO) (the link will be added upon publication).
 
-ASC has two methods of selection, GDM-AS and EDM-AS see the paper for a more thorough
+DM-AS Chooser has two methods of selection, GDM-AS and EDM-AS see the paper for a more thorough
 description of these methods.
 
 ## CLI
 ### Input
-The input to ASC will depend on using GDM-AS or EDM-AS, though both share similar interfaces.
+The input to DM-AS Chooser will depend on using GDM-AS or EDM-AS, though both share similar interfaces.
 All multi-reference calculations are assumed to be have a single file per active space. The name
 of the file is encouraged to have the syntax `<active_electrons>-<active_orbitalS>` in the name
 though this is not required. For example some file names could be
@@ -17,7 +17,7 @@ though this is not required. For example some file names could be
 - `benzene.csv`
 
 The multi-reference calculations files can be provided either as log file or as csv files. If they
-are log files they must be `Molcas`/`OpenMolcas` log files. ASC will use [molextract](https://github.com/sdonglab/molextract)
+are log files they must be `Molcas`/`OpenMolcas` log files. DM-AS Chooser will use [molextract](https://github.com/sdonglab/molextract)
 to automatically parser these log files and extract the relevant dipole moments.
 
 If your multi-reference calculations were not done using `Molcas`/`OpenMolcas` then the multi-reference
@@ -145,5 +145,5 @@ Excited_State_Dipole
 
 
 ## Installation
-If you only want to use CSV files for running ASC there are no dependencies to run ASC. If you would like to run ASC
+If you only want to use CSV files for running DM-AS Chooser there are no dependencies to run DM-AS Chooser. If you would like to run DM-AS Chooser
 with the convenience of parsing OpenMolcas and Gaussian log files you must install [molextract](https://github.com/sdonglab/molextract)
