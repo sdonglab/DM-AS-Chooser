@@ -2,8 +2,7 @@
 DM-AS Chooser implements the recommended active space selection algorithm
 as described in this [paper](TODO) (the link will be added upon publication).
 
-DM-AS Chooser has two methods of selection, GDM-AS and EDM-AS see the paper for a more thorough
-description of these methods.
+DM-AS Chooser has two methods of selection, GDM-AS and EDM-AS.
 
 ## Command-line Interface
 ### Input
