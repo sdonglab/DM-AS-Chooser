@@ -134,3 +134,6 @@ Excited_State_Dipole
 ## Installation
 If you only want to use CSV files for running DM-AS Chooser, there are no dependencies to run DM-AS Chooser. If you would like to run DM-AS Chooser
 with the convenience of parsing OpenMolcas and Gaussian log files you must install [molextract](https://github.com/sdonglab/molextract)
+
+##
+Copyright (c) 2023, Dong Lab @ Northeastern University
