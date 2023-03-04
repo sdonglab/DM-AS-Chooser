@@ -111,9 +111,10 @@ must be the excited state dipole moments for S2, S1 and S4
 
 ### CSV Syntax
 The syntax for CSV files is also closely tied to the values provided in `-S`. The CSV file must have a header,
-though again the contents of the header do not matter. It is then expected that the CSV file with have the same number
-of excited states as specified in `-S`. Additionally it is expected these excited states are also in the same order as
-specified in `-S`. Each row following the header line will contain the total dipole moment for that corresponding state. So if `-S 1 2 3` is set, an example CSV is
+though again the contents of the header do not matter. It is then expected that the CSV file will have the same number
+of excited state dipole moments as specified in `-S`. Additionally it is expected these excited state dipole moments are
+also in the same order as specified in `-S`. Each row following the header line will contain the total dipole moment for
+that corresponding state. So if `-S 1 2 3` is set, an example CSV is
 ```csv
 Excited_State_Dipole
 1.500
