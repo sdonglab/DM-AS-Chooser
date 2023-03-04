@@ -178,12 +178,12 @@ class GDMSelector:
 
 
 class EDMSelector:
-    def __init__(self, mr_calcs: List[MultiRefCalc], tddft_calcs: List[str],
+    def __init__(self, mr_calcs: List[MultiRefCalc], ref_dipoles: List[str],
                  es_spec: List[int]):
-        if len(tddft_calcs) != len(es_spec):
-            raise ValueError(f'mismatch between es_spec and tddft_calcs')
+        if len(ref_dipoles) != len(es_spec):
+            raise ValueError(f'mismatch between es_spec and ref_dipoles')
         self.mr_calcs = mr_calcs
-        self.tddft_calcs = tddft_calcs
+        self.ref_dipoles = ref_dipoles
         self.es_spec = es_spec
 
     def select(self) -> MultiRefCalc:
@@ -192,9 +192,9 @@ class EDMSelector:
 
         valid_mr_calcs = []
         all_mr_errors = []
-        tddft_dipoles = self.get_tddft_es_dipoles(self.tddft_calcs)
+        ref_dipoles = self.get_tddft_es_dipoles(self.ref_dipoles)
         errors = [0] * len(self.es_spec)
-        self.log_dipole(REF_DIPOLE_NAME, tddft_dipoles, errors)
+        self.log_dipole(REF_DIPOLE_NAME, ref_dipoles, errors)
 
         for mr_calc in self.mr_calcs:
             basename = os.path.basename(mr_calc.path)
@@ -205,7 +205,7 @@ class EDMSelector:
                 continue
 
             valid_mr_calcs.append(mr_calc)
-            zipped = zip(dipoles, tddft_dipoles)
+            zipped = zip(dipoles, ref_dipoles)
             mr_errors = [abs(mr_dm - tddft_dm) for mr_dm, tddft_dm in zipped]
             self.log_dipole(basename, dipoles, mr_errors)
             all_mr_errors.append(mr_errors)
@@ -229,12 +229,18 @@ class EDMSelector:
         if path.endswith(LOG_EXT):
             dipoles = parse_mr_log(path)
             dipoles = [es['dipole']['total'] for es in dipoles]
+            selected_dipoles = [dipoles[es_index] for es_index in self.es_spec]
         elif path.endswith(CSV_EXT):
             dipoles = self._parse_mr_csv(path)
+            if len(dipoles) != len(self.es_spec):
+                es_spec_str = f"-S {' '.join([str(es) for es in self.es_spec])}"
+                raise ValueError(f'number of dipoles in CSV file does '
+                                 f'not match the state specification: {path} '
+                                 f'({es_spec_str})')
+            selected_dipoles = dipoles
         else:
             raise ValueError(f'unrecognized file extension {path}')
 
-        selected_dipoles = [dipoles[es_index] for es_index in self.es_spec]
         return selected_dipoles
 
     def get_tddft_es_dipoles(self, paths: List[str]) -> List[float]:
@@ -298,8 +304,7 @@ def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
     edm_parser = subparsers.add_parser(
         EDM_AS,
         help=
-        'Run the excited-state dipole moment active-space selection algorithm'
-    )
+        'Run the excited-state dipole moment active-space selection algorithm')
     edm_parser.add_argument(
         '-m',
         '--mr-files',
@@ -313,12 +318,13 @@ def get_parsers() -> Tuple[argparse.ArgumentParser, argparse.ArgumentParser,
         nargs='+',
         default=[1, 2, 3],
         help='which ground / excited states to use (defaults to -S 1 2 3)')
-    edm_parser.add_argument('-t',
-                            '--tddft-files',
-                            type=str,
-                            required=True,
-                            nargs='+',
-                            help='The path(s) to the reference excited state calculation files')
+    edm_parser.add_argument(
+        '-r',
+        '--ref-dipoles',
+        type=str,
+        required=True,
+        nargs='+',
+        help='The path(s) to the reference excited state calculation files')
 
     return parser, gdm_parser, edm_parser
 
@@ -329,7 +335,7 @@ def process_opts(gdm_parser: argparse.ArgumentParser,
     parser = gdm_parser if opts.method == GDM_AS else edm_parser
     files = opts.mr_files.copy()
     if opts.method == EDM_AS:
-        files.extend(opts.tddft_files)
+        files.extend(opts.ref_dipoles)
 
         for es in opts.S:
             if es < 0:
@@ -338,9 +344,9 @@ def process_opts(gdm_parser: argparse.ArgumentParser,
         if len(opts.S) != len(set(opts.S)):
             parser.error('cannot have duplicates in excited state spec')
 
-        if len(opts.S) != len(opts.tddft_files):
+        if len(opts.S) != len(opts.ref_dipoles):
             parser.error(
-                f"number of excited states in -S ({len(opts.S)}) does not match the number of tddft reference vals ({len(opts.tddft_files)})"
+                f"number of states in -S ({len(opts.S)}) does not match the number of reference vals ({len(opts.ref_dipoles)})"
             )
     elif opts.method == GDM_AS:
         try:
@@ -379,7 +385,7 @@ def main(args: Optional[List[str]] = None):
     if opts.method == GDM_AS:
         selector = GDMSelector(mr_calcs, opts.ref_dipole)
     else:
-        selector = EDMSelector(mr_calcs, opts.tddft_files, opts.S)
+        selector = EDMSelector(mr_calcs, opts.ref_dipoles, opts.S)
 
     selection = dataclasses.asdict(selector.select())
     print(json.dumps(selection))
