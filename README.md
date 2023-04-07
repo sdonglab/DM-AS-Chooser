@@ -1,6 +1,8 @@
 # Dipole Moment Based Active Space (DM-AS) Chooser
 DM-AS Chooser implements the recommended active space selection algorithm
-as described in this [paper](TODO) (the link will be added upon publication).
+as described in the following paper:
+
+Kaufold, B. W.; Chintala, N.; Pandeya, P.; Dong, S. S. Automated Active Space Selection with Dipole Moments. *J. Chem. Theory Comput.* https://doi.org/10.1021/acs.jctc.2c01128
 
 DM-AS Chooser has two methods of selection, GDM-AS and EDM-AS.
 
